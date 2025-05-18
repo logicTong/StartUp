@@ -146,11 +146,11 @@ class StartupScheduler(
         val timer = Timer()
         timer.schedule(object : TimerTask() {
             override fun run() {
-//                isTimeout = true
-//                endTime = System.currentTimeMillis()
-//                taskMap[taskId]?.taskStatus = TaskStatus.TIMEOUT
-//                recordTaskTime(taskId, startTime, endTime, threadName)
-//                handleTaskCompletion(taskId, isTimeout)
+                isTimeout = true
+                endTime = System.currentTimeMillis()
+                taskMap[taskId]?.taskStatus = TaskStatus.TIMEOUT
+                recordTaskTime(taskId, startTime, endTime, threadName)
+                handleTaskCompletion(taskId, isTimeout)
             }
         }, task.timeout)
 
