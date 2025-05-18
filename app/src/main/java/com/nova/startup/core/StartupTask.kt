@@ -5,7 +5,7 @@
  */
 abstract class StartupTask(
     val runOnMainThread: Boolean = false,
-    val dependsOn: List<Class<in StartupTask>> = emptyList()
+    val dependsOn: List<Class<out StartupTask>> = emptyList()
 ) {
     /** Unique task identifier (default uses class name) */
     open val taskId: String get() = javaClass.simpleName
@@ -18,4 +18,10 @@ abstract class StartupTask(
 
     /** Whether to allow continuing execution after timeout (default true) */
     open val allowContinueOnTimeout: Boolean = true
+
+
+    enum class TaskStatus { PENDING, RUNNING, SUCCEEDED, FAILED, TIMEOUT }
+
+    var taskStatus = TaskStatus.PENDING
+
 }

@@ -16,7 +16,7 @@ class StorageInitTask : StartupTask(
  */
 class ConfigLoadTask : StartupTask(
     runOnMainThread = true,
-    dependsOn = listOf(StorageInitTask::class)
+    dependsOn = listOf(StorageInitTask::class.java)
 ) {
     override fun execute() {
         // Simulate loading local configuration
@@ -31,7 +31,7 @@ class ConfigLoadTask : StartupTask(
  */
 class NetworkInitTask : StartupTask(
     runOnMainThread = false,
-    dependsOn = listOf(ConfigLoadTask::class)
+    dependsOn = listOf(ConfigLoadTask::class.java)
 ) {
 
     override val timeout =3000L
@@ -49,7 +49,7 @@ class NetworkInitTask : StartupTask(
  */
 class LogInitTask : StartupTask(
     runOnMainThread = false,
-    dependsOn = listOf(StorageInitTask::class)
+    dependsOn = listOf(StorageInitTask::class.java)
 ) {
     override fun execute() {
         // Simulate logging library initialization

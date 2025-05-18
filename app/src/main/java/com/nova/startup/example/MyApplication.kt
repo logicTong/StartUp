@@ -28,25 +28,9 @@ class MyApplication : Application() {
         // Start scheduling
         scheduler.start()
 
-        // Simulate post-startup completion print stats (actual should listen to all task completion events)
-        Handler(Looper.getMainLooper()).postDelayed({
-            printStartupStats()
-        }, 3000)
     }
 
-    private fun printStartupStats() {
-        val timeline = scheduler.getExecutionTimeline()
-        val totalTime = timeline.maxOf { it.endTime } - timeline.minOf { it.startTime }
 
-        println("\n===== Startup Task Performance Report =====")
-        println("Total duration: ${totalTime}ms")
-        println("Execution details:")
-
-        timeline.forEach { info ->
-            println("Task: ${info.taskId.padEnd(15)} | Thread: ${info.threadName.padEnd(15)} | Duration: ${info.duration}ms")
-        }
-        println("===============================")
-    }
 
     override fun onTerminate() {
         super.onTerminate()

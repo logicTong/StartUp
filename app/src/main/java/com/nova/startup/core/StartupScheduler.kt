@@ -2,6 +2,7 @@ package com.nova.startup.core
 
 
 import StartupTask
+import StartupTask.TaskStatus
 import TaskTimeInfo
 import android.os.Handler
 import android.os.Looper
@@ -26,14 +27,13 @@ class StartupScheduler(
 ) {
     private val TAG = "StartupScheduler"
 
+    private val pendingTasks = mutableListOf<StartupTask>()
     private val taskMap = mutableMapOf<String, StartupTask>()
-    private val taskStatus = ConcurrentHashMap<String, TaskStatus>()
     private val dependencyGraph = ConcurrentHashMap<String, MutableSet<String>>()
     private val reverseDependencyGraph = ConcurrentHashMap<String, MutableSet<String>>()
     private val taskTimeRecords = ConcurrentHashMap<String, TaskTimeInfo>()
     private val isRegistered = AtomicBoolean(false)
 
-    enum class TaskStatus { PENDING, RUNNING, SUCCEEDED, FAILED, TIMEOUT }
 
     /**
      * Get all task time records
@@ -54,7 +54,7 @@ class StartupScheduler(
      * @throws IllegalArgumentException When circular dependencies are detected
      */
     fun registerTasks(vararg tasks: StartupTask) {
-        if (isRegistered.compareAndSet(false, true)) {
+        if (isRegistered.getAndSet(true)) {
             Log.e(
                 TAG,
                 "registerTasks: ",
@@ -62,9 +62,9 @@ class StartupScheduler(
             )
             return
         }
+        pendingTasks.addAll(tasks)
         tasks.forEach { task ->
             taskMap[task.taskId] = task
-            taskStatus[task.taskId] = TaskStatus.PENDING
         }
         buildDependencyGraph()
         checkForCircularDependencies()
@@ -79,11 +79,11 @@ class StartupScheduler(
     private fun buildDependencyGraph() {
         dependencyGraph.clear()
         reverseDependencyGraph.clear()
-
         taskMap.forEach { (taskId, task) ->
-            val dependencies = task.dependsOn.map { it.simpleName }.toMutableSet()
+            val dependencies = ConcurrentHashMap.newKeySet<String>().apply {
+                addAll(task.dependsOn.map { it.simpleName })
+            }
             dependencyGraph[taskId] = dependencies
-
             dependencies.forEach { depId ->
                 reverseDependencyGraph.getOrPut(depId) { mutableSetOf() }.add(taskId)
             }
@@ -124,9 +124,9 @@ class StartupScheduler(
 
     private fun executeTask(taskId: String) {
         val task = taskMap[taskId] ?: return
-        if (taskStatus[taskId] != TaskStatus.PENDING) return
+        if (task.taskStatus != TaskStatus.PENDING) return
 
-        taskStatus[taskId] = TaskStatus.RUNNING
+        task.taskStatus = TaskStatus.RUNNING
 
         val executor = if (task.runOnMainThread) {
             { mainHandler.post { executeTaskInternal(task, taskId) } }
@@ -146,11 +146,11 @@ class StartupScheduler(
         val timer = Timer()
         timer.schedule(object : TimerTask() {
             override fun run() {
-                isTimeout = true
-                endTime = System.currentTimeMillis()
-                taskStatus[taskId] = TaskStatus.TIMEOUT
-                recordTaskTime(taskId, startTime, endTime, threadName)
-                handleTaskCompletion(taskId, isTimeout)
+//                isTimeout = true
+//                endTime = System.currentTimeMillis()
+//                taskMap[taskId]?.taskStatus = TaskStatus.TIMEOUT
+//                recordTaskTime(taskId, startTime, endTime, threadName)
+//                handleTaskCompletion(taskId, isTimeout)
             }
         }, task.timeout)
 
@@ -158,11 +158,11 @@ class StartupScheduler(
             task.execute()
             if (!isTimeout) {
                 endTime = System.currentTimeMillis()
-                taskStatus[taskId] = TaskStatus.SUCCEEDED
+                taskMap[taskId]?.taskStatus = TaskStatus.SUCCEEDED
             }
         } catch (e: Exception) {
             endTime = System.currentTimeMillis()
-            taskStatus[taskId] = TaskStatus.FAILED
+            taskMap[taskId]?.taskStatus = TaskStatus.FAILED
             e.printStackTrace()
         } finally {
             if (!isTimeout) {
@@ -189,24 +189,31 @@ class StartupScheduler(
 
     private fun handleTaskCompletion(taskId: String, isTimeout: Boolean) {
         reverseDependencyGraph[taskId]?.forEach { dependentTaskId ->
-            var dependencies: MutableSet<String>? = null
-            synchronized(StartupScheduler::class) {
-                dependencies = dependencyGraph[dependentTaskId] ?: return@forEach
-                dependencies.remove(taskId)
-            }
-            dependencies?.let {
-                if (it.isEmpty()) {
-                    val dependentTask = taskMap[dependentTaskId] ?: return@forEach
-                    if (!isTimeout || dependentTask.allowContinueOnTimeout) {
-                        executeTask(dependentTaskId)
-                    }
+            val dependencies = dependencyGraph[dependentTaskId] ?: return@forEach
+            dependencies.remove(taskId)
+            if (dependencies.isEmpty()) {
+                val dependentTask = taskMap[dependentTaskId] ?: return@forEach
+                if (!isTimeout || dependentTask.allowContinueOnTimeout) {
+                    executeTask(dependentTaskId)
                 }
+            }
+        }
+        synchronized(StartupScheduler::class) {
+            pendingTasks.remove(taskMap[taskId])
+            TaskCompleteNotifier.notifyTaskComplete(this, taskMap[taskId]!!)
+            if (pendingTasks.isEmpty()) {
+                TaskCompleteNotifier.notifyAllTaskComplete(this)
+                mainHandler.postDelayed({ shutdown() }, 600)
             }
         }
     }
 
+
     /** Close scheduler (call on app exit) */
     fun shutdown() {
+        if (workerPool.isShutdown) {
+            return
+        }
         workerPool.shutdown()
         try {
             if (!workerPool.awaitTermination(1, TimeUnit.SECONDS)) {
